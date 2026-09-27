@@ -71,6 +71,14 @@ public sealed class ComputerTools(
     [McpServerTool(Name = "computer.press"), Description("Press and release one named key.")]
     public Task<InputResult> Press(string key, CancellationToken cancellationToken = default) => input.PressAsync(key, cancellationToken);
 
+    [McpServerTool(Name = "computer.key_down"), Description(ToolDocumentation.KeyDown)]
+    public Task<InputResult> KeyDown(KeyInput key, int holdTimeoutMs, CancellationToken cancellationToken = default) =>
+        input.KeyDownAsync(key, holdTimeoutMs, cancellationToken);
+
+    [McpServerTool(Name = "computer.key_up"), Description(ToolDocumentation.KeyUp)]
+    public Task<InputResult> KeyUp(KeyInput key, CancellationToken cancellationToken = default) =>
+        input.KeyUpAsync(key, cancellationToken);
+
     [McpServerTool(Name = "computer.hotkey"), Description("Press a key combination, for example CTRL+L.")]
     public Task<InputResult> Hotkey(string keys, CancellationToken cancellationToken = default) => input.HotkeyAsync(keys, cancellationToken);
 
@@ -80,8 +88,9 @@ public sealed class ComputerTools(
     [McpServerTool(Name = "computer.drag"), Description("Drag the local mouse along a human-like trajectory.")]
     public Task<InputResult> Drag(int x1, int y1, int x2, int y2, CancellationToken cancellationToken = default) => input.DragAsync(x1, y1, x2, y2, cancellationToken);
 
-    [McpServerTool(Name = "computer.sequence"), Description("Run a small action sequence: click, double_click, type, press, hotkey, scroll or drag.")]
-    public Task<InputResult> Sequence(InputAction[] actions, CancellationToken cancellationToken = default) => input.SequenceAsync(actions, cancellationToken);
+    [McpServerTool(Name = "computer.sequence"), Description(ToolDocumentation.Sequence)]
+    public Task<InputResult> Sequence(InputAction[] actions, bool resetBefore = false, bool resetAfter = false, CancellationToken cancellationToken = default) =>
+        input.SequenceAsync(actions, resetBefore, resetAfter, cancellationToken);
 
     [McpServerTool(Name = "computer.raw_mouse"), Description("Send one raw FakerInput mouse report. The report is base64 in JSON.")]
     public Task<InputResult> RawMouse(byte[] report, CancellationToken cancellationToken = default) => input.RawMouseAsync(report, cancellationToken);

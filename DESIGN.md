@@ -59,10 +59,12 @@ computer.click(x, y)
 computer.double_click(x, y)
 computer.type(text)
 computer.press(key)
+computer.key_down(key, holdTimeoutMs)
+computer.key_up(key)
 computer.hotkey(keys)
 computer.scroll(delta)
 computer.drag(x1, y1, x2, y2)
-computer.sequence(actions)
+computer.sequence(actions, resetBefore=false, resetAfter=false)
 
 computer.raw_mouse(report)
 computer.raw_keyboard(report)
@@ -76,7 +78,24 @@ computer.lua(code, session?)
 
 `runtime`: `powershell | nodejs | python`. Синонимы: `pwsh | node | py`.
 
-`sequence` поддерживает `click`, `double_click`, `type`, `press`, `hotkey`, `scroll`, `drag`. Действия выполняются одним запросом worker, последовательно; первая ошибка останавливает sequence.
+`sequence` поддерживает `click`, `double_click`, `type`, `press`, `key_down`, `key_up`, `hotkey`, `scroll`, `drag`. Действия выполняются одним запросом worker, последовательно; первая ошибка останавливает sequence.
+
+```json
+{
+  "name": "computer.sequence",
+  "arguments": {
+    "resetBefore": true,
+    "resetAfter": true,
+    "actions": [
+      {"op":"key_down","key":"CTRL","holdTimeoutMs":2000},
+      {"op":"press","key":"A"},
+      {"op":"key_up","key":"CTRL"}
+    ]
+  }
+}
+```
+
+`holdTimeoutMs` обязателен для `key_down` и ограничен 1–60000 мс. Клавиша отпускается по `key_up`, таймауту или `release_all`; конец `sequence` сам её не отпускает. `resetBefore`/`resetAfter` по умолчанию `false` и отпускают все виртуальные клавиши и кнопки мыши. `resetAfter` выполняется и при ошибке действия или отмене. Неверный `key_down` проверяется до любых действий и сбросов.
 
 ## Высокоуровневый ввод
 

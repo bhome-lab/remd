@@ -7,10 +7,12 @@ public interface IInputService
     Task<InputResult> DoubleClickAsync(int x, int y, CancellationToken cancellationToken);
     Task<InputResult> TypeAsync(string text, CancellationToken cancellationToken);
     Task<InputResult> PressAsync(KeyInput key, CancellationToken cancellationToken);
+    Task<InputResult> KeyDownAsync(KeyInput key, int holdTimeoutMs, CancellationToken cancellationToken);
+    Task<InputResult> KeyUpAsync(KeyInput key, CancellationToken cancellationToken);
     Task<InputResult> HotkeyAsync(KeyChord keys, CancellationToken cancellationToken);
     Task<InputResult> ScrollAsync(int delta, CancellationToken cancellationToken);
     Task<InputResult> DragAsync(int x1, int y1, int x2, int y2, CancellationToken cancellationToken);
-    Task<InputResult> SequenceAsync(InputAction[] actions, CancellationToken cancellationToken);
+    Task<InputResult> SequenceAsync(InputAction[] actions, bool resetBefore, bool resetAfter, CancellationToken cancellationToken);
     Task<InputResult> RawMouseAsync(byte[] report, CancellationToken cancellationToken);
     Task<InputResult> RawKeyboardAsync(byte[] report, CancellationToken cancellationToken);
     Task<InputResult> ReleaseAllAsync(CancellationToken cancellationToken);

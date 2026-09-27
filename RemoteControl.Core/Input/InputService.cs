@@ -1,11 +1,23 @@
 namespace RemoteControl.Core.Input;
 
 /// <summary>Последовательные пользовательские действия поверх HID-устройства.</summary>
-public sealed class InputService(IInputDevice device, IKeyboardLayout layout, IDesktopPointer pointer, TimeProvider? timeProvider = null) : IInputService
+public sealed class InputService(IInputDevice device, IKeyboardLayout layout, IDesktopPointer pointer, TimeProvider? timeProvider = null) : IInputService, IDisposable
 {
     private const string Backend = "fakerinput";
-    private readonly SemaphoreSlim _gate = new(1, 1);
-    private readonly TimeProvider _time = timeProvider ?? TimeProvider.System;
+    private const int MaximumHoldTimeoutMs = 60000;
+    private readonly SemaphoreSlim _commandGate = new(1, 1);
+    private readonly TimeProvider _timeProvider = timeProvider ?? TimeProvider.System;
+    private readonly object _keyboardStateLock = new();
+    private readonly Dictionary<KeyStroke, HeldKeyTiming> _heldKeys = [];
+    private byte _rawKeyboardModifiers;
+    private byte[] _rawKeyboardKeys = [];
+    private byte _temporaryModifiers;
+    private byte[] _temporaryKeys = [];
+    private ITimer? _holdExpirationTimer;
+    private bool _keyboardWriteRetryPending;
+    private bool _disposed;
+
+    private readonly record struct HeldKeyTiming(long PressedAtTimestamp, int HoldTimeoutMs);
 
     public Task<InputStatus> GetStatusAsync(CancellationToken cancellationToken)
     {
@@ -18,34 +30,35 @@ public sealed class InputService(IInputDevice device, IKeyboardLayout layout, ID
     public Task<InputResult> DoubleClickAsync(int x, int y, CancellationToken cancellationToken) => ExecuteAsync(() => DoubleClickCoreAsync(x, y, cancellationToken), cancellationToken);
     public Task<InputResult> TypeAsync(string text, CancellationToken cancellationToken) => ExecuteAsync(() => TypeCoreAsync(text, cancellationToken), cancellationToken);
     public Task<InputResult> PressAsync(KeyInput key, CancellationToken cancellationToken) => ExecuteAsync(() => PressCoreAsync(key, cancellationToken), cancellationToken);
+    public Task<InputResult> KeyDownAsync(KeyInput key, int holdTimeoutMs, CancellationToken cancellationToken) =>
+        ExecuteAsync(() => Task.FromResult(KeyDownCore(key, holdTimeoutMs)), cancellationToken);
+    public Task<InputResult> KeyUpAsync(KeyInput key, CancellationToken cancellationToken) =>
+        ExecuteAsync(() => Task.FromResult(KeyUpCore(key)), cancellationToken);
     public Task<InputResult> HotkeyAsync(KeyChord keys, CancellationToken cancellationToken) => ExecuteAsync(() => HotkeyCoreAsync(keys, cancellationToken), cancellationToken);
     public Task<InputResult> ScrollAsync(int delta, CancellationToken cancellationToken) => ExecuteAsync(() => ScrollCoreAsync(delta, cancellationToken), cancellationToken);
     public Task<InputResult> DragAsync(int x1, int y1, int x2, int y2, CancellationToken cancellationToken) => ExecuteAsync(() => DragCoreAsync(x1, y1, x2, y2, cancellationToken), cancellationToken);
-    public Task<InputResult> SequenceAsync(InputAction[] actions, CancellationToken cancellationToken) => ExecuteAsync(() => SequenceCoreAsync(actions, cancellationToken), cancellationToken);
+    public Task<InputResult> SequenceAsync(InputAction[] actions, bool resetBefore, bool resetAfter, CancellationToken cancellationToken) =>
+        ExecuteAsync(() => SequenceCoreAsync(actions, resetBefore, resetAfter, cancellationToken), cancellationToken);
 
     public Task<InputResult> RawMouseAsync(byte[] report, CancellationToken cancellationToken) => ExecuteAsync(() =>
         Task.FromResult(RawInputReports.TryReadMouse(report, out var mouse) ? WriteResult(device.WriteMouse(mouse)) : Failure("invalid_report")), cancellationToken);
 
     public Task<InputResult> RawKeyboardAsync(byte[] report, CancellationToken cancellationToken) => ExecuteAsync(() =>
-        Task.FromResult(RawInputReports.IsKeyboard(report) ? WriteResult(device.WriteKeyboard(report[1], report.AsSpan(3, 6))) : Failure("invalid_report")), cancellationToken);
+        Task.FromResult(RawKeyboardCore(report)), cancellationToken);
 
-    public Task<InputResult> ReleaseAllAsync(CancellationToken cancellationToken) => ExecuteAsync(() =>
-    {
-        var keyboard = device.WriteKeyboard(0, []);
-        var mouse = device.WriteMouse(new(false, 0, 0, 0));
-        return Task.FromResult(WriteResult(keyboard && mouse));
-    }, cancellationToken);
+    public Task<InputResult> ReleaseAllAsync(CancellationToken cancellationToken) =>
+        ExecuteAsync(() => Task.FromResult(ReleaseAllCore()), cancellationToken);
 
     private async Task<InputResult> ExecuteAsync(Func<Task<InputResult>> action, CancellationToken cancellationToken)
     {
-        await _gate.WaitAsync(cancellationToken);
+        await _commandGate.WaitAsync(cancellationToken);
         try
         {
             if (!device.Status.Connected) return Failure("driver_unavailable");
             cancellationToken.ThrowIfCancellationRequested();
             return await action();
         }
-        finally { _gate.Release(); }
+        finally { _commandGate.Release(); }
     }
 
     private async Task<InputResult> ClickCoreAsync(int x, int y, CancellationToken cancellationToken)
@@ -77,7 +90,8 @@ public sealed class InputService(IInputDevice device, IKeyboardLayout layout, ID
         foreach (var stroke in strokes)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            if (!await TapAsync(stroke, cancellationToken)) return Failure("driver_write_failed");
+            var result = await TapAsync(stroke, cancellationToken);
+            if (!result.Ok) return result;
             await DelayAsync(20, cancellationToken);
         }
         return Success();
@@ -86,30 +100,93 @@ public sealed class InputService(IInputDevice device, IKeyboardLayout layout, ID
     private async Task<InputResult> PressCoreAsync(KeyInput key, CancellationToken cancellationToken)
     {
         return KeyParser.TryParse(key, out var stroke)
-            ? WriteResult(await TapAsync(stroke, cancellationToken)) : Failure("invalid_key");
+            ? await TapAsync(stroke, cancellationToken) : Failure("invalid_key");
     }
 
     private async Task<InputResult> HotkeyCoreAsync(KeyChord chord, CancellationToken cancellationToken)
     {
         return KeyParser.TryParseHotkey(chord, out var keys, out var modifiers)
-            ? WriteResult(await TapAsync(keys, modifiers, cancellationToken)) : Failure("invalid_key");
+            ? await TapAsync(keys, modifiers, cancellationToken) : Failure("invalid_key");
     }
 
-    private Task<bool> TapAsync(KeyStroke stroke, CancellationToken cancellationToken) =>
+    private Task<InputResult> TapAsync(KeyStroke stroke, CancellationToken cancellationToken) =>
         TapAsync(stroke.Key == 0 ? [] : [stroke.Key], stroke.Modifiers, cancellationToken);
 
-    private async Task<bool> TapAsync(byte[] keys, byte modifiers, CancellationToken cancellationToken)
+    private async Task<InputResult> TapAsync(byte[] keys, byte modifiers, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var pressed = false;
+        bool pressed;
         var released = false;
+        lock (_keyboardStateLock)
+        {
+            _temporaryKeys = keys;
+            _temporaryModifiers = modifiers;
+            if (!TryBuildKeyboardReportLocked(out _, out _))
+            {
+                ClearTemporaryKeysLocked();
+                return Failure("invalid_key");
+            }
+            pressed = WriteKeyboardStateLocked();
+        }
         try
         {
-            pressed = device.WriteKeyboard(modifiers, keys);
             if (pressed) await DelayAsync(35, cancellationToken);
         }
-        finally { released = device.WriteKeyboard(0, []); }
-        return pressed && released;
+        finally
+        {
+            lock (_keyboardStateLock)
+            {
+                ClearTemporaryKeysLocked();
+                released = WriteKeyboardStateLocked();
+                _keyboardWriteRetryPending = !released;
+                ScheduleHoldTimerLocked();
+            }
+        }
+        return WriteResult(pressed && released);
+    }
+
+    private InputResult KeyDownCore(KeyInput key, int holdTimeoutMs)
+    {
+        if (holdTimeoutMs is < 1 or > MaximumHoldTimeoutMs) return Failure("invalid_timeout");
+        if (!KeyParser.TryParse(key, out var stroke) || stroke is { Key: 0, Modifiers: 0 }) return Failure("invalid_key");
+        lock (_keyboardStateLock)
+        {
+            var wasAlreadyHeld = _heldKeys.TryGetValue(stroke, out var previousTiming);
+            _heldKeys[stroke] = new(_timeProvider.GetTimestamp(), holdTimeoutMs);
+            if (!TryBuildKeyboardReportLocked(out _, out _))
+            {
+                if (wasAlreadyHeld) _heldKeys[stroke] = previousTiming;
+                else _heldKeys.Remove(stroke);
+                return Failure("invalid_key");
+            }
+            if (!wasAlreadyHeld && !WriteKeyboardStateLocked())
+            {
+                _heldKeys.Remove(stroke);
+                _keyboardWriteRetryPending = !WriteKeyboardStateLocked();
+                ScheduleHoldTimerLocked();
+                return Failure("driver_write_failed");
+            }
+            ScheduleHoldTimerLocked();
+            return Success();
+        }
+    }
+
+    private InputResult KeyUpCore(KeyInput key)
+    {
+        if (!KeyParser.TryParse(key, out var stroke) || stroke is { Key: 0, Modifiers: 0 }) return Failure("invalid_key");
+        lock (_keyboardStateLock)
+        {
+            if (!_heldKeys.Remove(stroke, out var previousTiming)) return Success();
+            if (!WriteKeyboardStateLocked())
+            {
+                _heldKeys[stroke] = previousTiming;
+                _keyboardWriteRetryPending = !WriteKeyboardStateLocked();
+                ScheduleHoldTimerLocked();
+                return Failure("driver_write_failed");
+            }
+            ScheduleHoldTimerLocked();
+            return Success();
+        }
     }
 
     private Task<InputResult> ScrollCoreAsync(int delta, CancellationToken cancellationToken)
@@ -142,9 +219,35 @@ public sealed class InputService(IInputDevice device, IKeyboardLayout layout, ID
         return WriteResult(moved && released);
     }
 
-    private async Task<InputResult> SequenceCoreAsync(InputAction[] actions, CancellationToken cancellationToken)
+    private async Task<InputResult> SequenceCoreAsync(InputAction[] actions, bool resetBefore, bool resetAfter, CancellationToken cancellationToken)
     {
         if (actions is null) return Failure("unknown_action");
+        foreach (var action in actions)
+        {
+            if (action?.Op?.Equals("key_down", StringComparison.OrdinalIgnoreCase) == true)
+            {
+                if (action.HoldTimeoutMs is not int holdTimeoutMs || holdTimeoutMs is < 1 or > MaximumHoldTimeoutMs) return Failure("invalid_timeout");
+                if (action.Key is not KeyInput key || !KeyParser.TryParse(key, out var stroke) || stroke is { Key: 0, Modifiers: 0 })
+                    return Failure("invalid_key");
+            }
+            else if (action?.Op?.Equals("key_up", StringComparison.OrdinalIgnoreCase) == true &&
+                (action.Key is not KeyInput key || !KeyParser.TryParse(key, out var stroke) || stroke is { Key: 0, Modifiers: 0 }))
+                return Failure("invalid_key");
+        }
+        if (resetBefore)
+        {
+            var resetBeforeResult = ReleaseAllCore();
+            if (!resetBeforeResult.Ok) return resetBeforeResult;
+        }
+        InputResult actionsResult = Success();
+        InputResult resetAfterResult = Success();
+        try { actionsResult = await RunSequenceActionsAsync(actions, cancellationToken); }
+        finally { if (resetAfter) resetAfterResult = ReleaseAllCore(); }
+        return resetAfterResult.Ok ? actionsResult : resetAfterResult;
+    }
+
+    private async Task<InputResult> RunSequenceActionsAsync(InputAction[] actions, CancellationToken cancellationToken)
+    {
         foreach (var action in actions)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -154,6 +257,8 @@ public sealed class InputService(IInputDevice device, IKeyboardLayout layout, ID
                 "double_click" => await DoubleClickCoreAsync(action.X, action.Y, cancellationToken),
                 "type" => await TypeCoreAsync(action.Text ?? "", cancellationToken),
                 "press" => await PressCoreAsync(action.Key ?? default, cancellationToken),
+                "key_down" => KeyDownCore(action.Key ?? default, action.HoldTimeoutMs ?? 0),
+                "key_up" => KeyUpCore(action.Key ?? default),
                 "hotkey" => await HotkeyCoreAsync(action.Keys ?? default, cancellationToken),
                 "scroll" => await ScrollCoreAsync(action.Delta, cancellationToken),
                 "drag" => await DragCoreAsync(action.X, action.Y, action.X2, action.Y2, cancellationToken),
@@ -162,6 +267,113 @@ public sealed class InputService(IInputDevice device, IKeyboardLayout layout, ID
             if (!result.Ok) return result;
         }
         return Success();
+    }
+
+    private InputResult RawKeyboardCore(byte[] report)
+    {
+        if (!RawInputReports.IsKeyboard(report)) return Failure("invalid_report");
+        lock (_keyboardStateLock)
+        {
+            if (!device.WriteKeyboard(report[1], report.AsSpan(3, 6))) return Failure("driver_write_failed");
+            _heldKeys.Clear();
+            _rawKeyboardModifiers = report[1];
+            _rawKeyboardKeys = report.AsSpan(3, 6).ToArray();
+            _keyboardWriteRetryPending = false;
+            ScheduleHoldTimerLocked();
+            return Success();
+        }
+    }
+
+    private InputResult ReleaseAllCore()
+    {
+        lock (_keyboardStateLock)
+        {
+            _heldKeys.Clear();
+            _rawKeyboardModifiers = 0;
+            _rawKeyboardKeys = [];
+            ClearTemporaryKeysLocked();
+            var keyboardReleased = device.WriteKeyboard(0, []);
+            _keyboardWriteRetryPending = !keyboardReleased;
+            ScheduleHoldTimerLocked();
+            var mouseReleased = device.WriteMouse(new(false, 0, 0, 0));
+            return WriteResult(keyboardReleased && mouseReleased);
+        }
+    }
+
+    private void ClearTemporaryKeysLocked()
+    {
+        _temporaryModifiers = 0;
+        _temporaryKeys = [];
+    }
+
+    private bool TryBuildKeyboardReportLocked(out byte modifiers, out byte[] keys)
+    {
+        modifiers = (byte)(_rawKeyboardModifiers | _temporaryModifiers);
+        var usages = new List<byte>(6);
+        foreach (var key in _rawKeyboardKeys)
+            if (key != 0 && !usages.Contains(key)) usages.Add(key);
+        foreach (var stroke in _heldKeys.Keys)
+        {
+            modifiers |= stroke.Modifiers;
+            if (stroke.Key != 0 && !usages.Contains(stroke.Key)) usages.Add(stroke.Key);
+        }
+        foreach (var key in _temporaryKeys)
+            if (key != 0 && !usages.Contains(key)) usages.Add(key);
+        keys = usages.ToArray();
+        return keys.Length <= 6;
+    }
+
+    private bool WriteKeyboardStateLocked() =>
+        TryBuildKeyboardReportLocked(out var modifiers, out var keys) && device.WriteKeyboard(modifiers, keys);
+
+    private void OnHoldExpiration(object? _)
+    {
+        lock (_keyboardStateLock)
+        {
+            if (_disposed) return;
+            var now = _timeProvider.GetTimestamp();
+            var expired = _heldKeys.Where(item => _timeProvider.GetElapsedTime(item.Value.PressedAtTimestamp, now) >= TimeSpan.FromMilliseconds(item.Value.HoldTimeoutMs))
+                .Select(item => item.Key).ToArray();
+            foreach (var key in expired) _heldKeys.Remove(key);
+            if (expired.Length > 0 || _keyboardWriteRetryPending)
+                _keyboardWriteRetryPending = !WriteKeyboardStateLocked();
+            ScheduleHoldTimerLocked();
+        }
+    }
+
+    private void ScheduleHoldTimerLocked()
+    {
+        if (_disposed) return;
+        var now = _timeProvider.GetTimestamp();
+        var due = _keyboardWriteRetryPending ? TimeSpan.FromMilliseconds(250) : Timeout.InfiniteTimeSpan;
+        foreach (var hold in _heldKeys.Values)
+        {
+            var remaining = TimeSpan.FromMilliseconds(hold.HoldTimeoutMs) - _timeProvider.GetElapsedTime(hold.PressedAtTimestamp, now);
+            if (remaining < TimeSpan.Zero) remaining = TimeSpan.Zero;
+            if (due == Timeout.InfiniteTimeSpan || remaining < due) due = remaining;
+        }
+        if (_holdExpirationTimer is null)
+        {
+            if (due != Timeout.InfiniteTimeSpan)
+                _holdExpirationTimer = _timeProvider.CreateTimer(OnHoldExpiration, null, due, Timeout.InfiniteTimeSpan);
+        }
+        else _holdExpirationTimer.Change(due, Timeout.InfiniteTimeSpan);
+    }
+
+    public void Dispose()
+    {
+        lock (_keyboardStateLock)
+        {
+            if (_disposed) return;
+            _disposed = true;
+            _holdExpirationTimer?.Dispose();
+            _heldKeys.Clear();
+            _rawKeyboardModifiers = 0;
+            _rawKeyboardKeys = [];
+            ClearTemporaryKeysLocked();
+            device.WriteKeyboard(0, []);
+            device.WriteMouse(new(false, 0, 0, 0));
+        }
     }
 
     private Task<bool> MoveAsync(int x, int y, CancellationToken cancellationToken) => pointer.TryGetPosition(out var start)
@@ -193,7 +405,7 @@ public sealed class InputService(IInputDevice device, IKeyboardLayout layout, ID
     }
 
     private static short Normalize(long position, int length) => (short)Math.Clamp(position * 32767 / Math.Max(1, length - 1), 0, 32767);
-    private Task DelayAsync(int milliseconds, CancellationToken cancellationToken) => Task.Delay(TimeSpan.FromMilliseconds(milliseconds), _time, cancellationToken);
+    private Task DelayAsync(int milliseconds, CancellationToken cancellationToken) => Task.Delay(TimeSpan.FromMilliseconds(milliseconds), _timeProvider, cancellationToken);
     private static InputResult WriteResult(bool success) => success ? Success() : Failure("driver_write_failed");
     private static InputResult Success() => new(true, Backend);
     private static InputResult Failure(string error) => new(false, Backend, error);

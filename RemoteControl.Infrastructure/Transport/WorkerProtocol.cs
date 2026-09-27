@@ -10,7 +10,8 @@ public sealed record WorkerArgs(
     byte[]? Report = null, CaptureRequest? Capture = null,
     string? Runtime = null, string? Code = null, string? Environment = null,
     string? Session = null, string? Name = null, int TimeoutMs = 30000,
-    string[]? Packages = null, InputAction[]? Actions = null);
+    string[]? Packages = null, InputAction[]? Actions = null,
+    int? HoldTimeoutMs = null, bool ResetBefore = false, bool ResetAfter = false);
 
 public sealed record WorkerResponse(
     bool Ok, string? Error = null,

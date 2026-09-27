@@ -148,7 +148,7 @@ public sealed class InputServiceTests
     public async Task CompositeStopsBeforeActionsAfterFailure()
     {
         var device = new FakeDevice();
-        var result = await Create(device).SequenceAsync([new("press", Key: "A"), new("press", Key: "UNKNOWN"), new("press", Key: "B")], default);
+        var result = await Create(device).SequenceAsync([new("press", Key: "A"), new("press", Key: "UNKNOWN"), new("press", Key: "B")], false, false, default);
         Assert.Equal("invalid_key", result.Error);
         Assert.Equal(2, device.KeyboardWrites.Count);
         Assert.Equal(new byte[] { 4 }, device.KeyboardWrites[0].Keys);
@@ -190,6 +190,153 @@ public sealed class InputServiceTests
         Assert.Equal("driver_unavailable", result.Error);
         Assert.Empty(device.KeyboardWrites);
         Assert.Equal("unavailable", (await Create(device).GetStatusAsync(default)).Backend);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(60001)]
+    public async Task KeyDownRequiresBoundedTimeout(int timeoutMs)
+    {
+        var device = new FakeDevice();
+        using var service = Create(device);
+        Assert.Equal("invalid_timeout", (await service.KeyDownAsync("A", timeoutMs, default)).Error);
+        Assert.Empty(device.KeyboardWrites);
+    }
+
+    [Fact]
+    public async Task HeldKeySurvivesTapAndReleasesOnKeyUp()
+    {
+        var device = new FakeDevice();
+        using var service = new InputService(device, new FakeLayout(), new FakePointer());
+        Assert.True((await service.KeyDownAsync("CTRL", 1000, default)).Ok);
+        Assert.True((await service.PressAsync("A", default)).Ok);
+        Assert.True((await service.KeyUpAsync("CTRL", default)).Ok);
+        Assert.Collection(device.KeyboardWrites,
+            report => { Assert.Equal(1, report.Modifiers); Assert.Empty(report.Keys); },
+            report => { Assert.Equal(1, report.Modifiers); Assert.Equal(new byte[] { 4 }, report.Keys); },
+            report => { Assert.Equal(1, report.Modifiers); Assert.Empty(report.Keys); },
+            report => { Assert.Equal(0, report.Modifiers); Assert.Empty(report.Keys); });
+    }
+
+    [Fact]
+    public async Task OverlappingShiftedKeyDoesNotReleaseSeparatelyHeldShift()
+    {
+        var device = new FakeDevice();
+        using var service = Create(device);
+        Assert.True((await service.KeyDownAsync("SHIFT", 1000, default)).Ok);
+        Assert.True((await service.KeyDownAsync("!", 1000, default)).Ok);
+        Assert.True((await service.KeyUpAsync("!", default)).Ok);
+        Assert.Equal(2, device.KeyboardWrites[^1].Modifiers);
+        Assert.Empty(device.KeyboardWrites[^1].Keys);
+    }
+
+    [Fact]
+    public async Task RawKeyboardReplacesHeldKeysAndSurvivesTemporaryPress()
+    {
+        var device = new FakeDevice();
+        using var service = Create(device);
+        Assert.True((await service.KeyDownAsync("A", 1000, default)).Ok);
+        Assert.True((await service.RawKeyboardAsync([1, 0, 0, 5, 0, 0, 0, 0, 0], default)).Ok);
+        Assert.True((await service.PressAsync("C", default)).Ok);
+        Assert.True((await service.KeyUpAsync("A", default)).Ok);
+        Assert.Equal(new byte[] { 5 }, device.KeyboardWrites[^1].Keys);
+        Assert.Contains(device.KeyboardWrites, report => report.Keys.SequenceEqual(new byte[] { 5, 6 }));
+        Assert.True((await service.ReleaseAllAsync(default)).Ok);
+        Assert.Empty(device.KeyboardWrites[^1].Keys);
+    }
+
+    [Fact]
+    public async Task KeyDownInSequencePersistsUntilTimeoutEvenWhileSequenceIsRunning()
+    {
+        var device = new FakeDevice();
+        var released = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        device.KeyboardWriteSucceeds = (modifiers, keys) =>
+        {
+            if (modifiers == 0 && keys.Length == 0) released.TrySetResult();
+            return true;
+        };
+        using var service = new InputService(device, new FakeLayout(), new FakePointer());
+        var sequence = service.SequenceAsync([new("key_down", Key: "A", HoldTimeoutMs: 50), new("click", X: 200, Y: 300)], false, false, default);
+        await released.Task.WaitAsync(TimeSpan.FromSeconds(3));
+        Assert.False(sequence.IsCompleted);
+        Assert.True((await sequence).Ok);
+        Assert.Equal(new byte[] { 4 }, device.KeyboardWrites[0].Keys);
+        Assert.Empty(device.KeyboardWrites[^1].Keys);
+    }
+
+    [Fact]
+    public async Task ExpiredKeyReleaseIsRetriedWhenDeviceBecomesAvailable()
+    {
+        var device = new FakeDevice();
+        var firstReleaseAttempt = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseSucceeded = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var acceptsRelease = new int[1];
+        device.KeyboardWriteSucceeds = (modifiers, keys) =>
+        {
+            if (modifiers != 0 || keys.Length != 0) return true;
+            firstReleaseAttempt.TrySetResult();
+            if (Volatile.Read(ref acceptsRelease[0]) == 0) return false;
+            releaseSucceeded.TrySetResult();
+            return true;
+        };
+        using var service = new InputService(device, new FakeLayout(), new FakePointer());
+        Assert.True((await service.KeyDownAsync("A", 50, default)).Ok);
+        await firstReleaseAttempt.Task.WaitAsync(TimeSpan.FromSeconds(3));
+        Interlocked.Exchange(ref acceptsRelease[0], 1);
+        await releaseSucceeded.Task.WaitAsync(TimeSpan.FromSeconds(3));
+        Assert.Empty(device.KeyboardWrites[^1].Keys);
+    }
+
+    [Fact]
+    public async Task SequenceRejectsMissingTimeoutBeforeResetOrEarlierActions()
+    {
+        var device = new FakeDevice();
+        using var service = Create(device);
+        var result = await service.SequenceAsync([new("press", Key: "A"), new("key_down", Key: "B")], true, true, default);
+        Assert.Equal("invalid_timeout", result.Error);
+        Assert.Empty(device.KeyboardWrites);
+        Assert.Empty(device.MouseWrites);
+    }
+
+    [Fact]
+    public async Task SequenceWithoutResetLeavesHoldActiveAndExplicitResetsClearBothDevices()
+    {
+        var device = new FakeDevice();
+        using var service = new InputService(device, new FakeLayout(), new FakePointer());
+        Assert.True((await service.SequenceAsync([new("key_down", Key: "A", HoldTimeoutMs: 1000)], false, false, default)).Ok);
+        Assert.Equal(new byte[] { 4 }, device.KeyboardWrites[^1].Keys);
+        Assert.True((await service.RawMouseAsync([3, 2, 0, 0, 0, 0, 0, 0], default)).Ok);
+        Assert.True((await service.SequenceAsync([], true, true, default)).Ok);
+        Assert.All(device.KeyboardWrites.Skip(1), report => { Assert.Empty(report.Keys); Assert.Equal(0, report.Modifiers); });
+        Assert.Equal(new byte[] { 0, 0 }, device.MouseWrites.TakeLast(2).Select(report => report.Buttons));
+        Assert.True((await service.KeyUpAsync("A", default)).Ok);
+        Assert.Equal(3, device.KeyboardWrites.Count);
+    }
+
+    [Fact]
+    public async Task ReleaseAllAfterRunsOnActionFailure()
+    {
+        var device = new FakeDevice();
+        using var service = new InputService(device, new FakeLayout(), new FakePointer());
+        Assert.True((await service.KeyDownAsync("A", 1000, default)).Ok);
+        var result = await service.SequenceAsync([new("press", Key: "UNKNOWN")], false, true, default);
+        Assert.Equal("invalid_key", result.Error);
+        Assert.Empty(device.KeyboardWrites[^1].Keys);
+        Assert.Equal(0, device.MouseWrites[^1].Buttons);
+    }
+
+    [Fact]
+    public async Task ReleaseAllAfterRunsOnCancellation()
+    {
+        using var cancellation = new CancellationTokenSource();
+        var device = new FakeDevice();
+        device.MouseWriteSucceeds = report => { if (report.Buttons == 1) cancellation.Cancel(); return true; };
+        using var service = new InputService(device, new FakeLayout(), new FakePointer());
+        Assert.True((await service.KeyDownAsync("A", 1000, default)).Ok);
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            service.SequenceAsync([new("click", X: 200, Y: 300)], false, true, cancellation.Token));
+        Assert.Empty(device.KeyboardWrites[^1].Keys);
+        Assert.Equal(0, device.MouseWrites[^1].Buttons);
     }
 
     private static InputService Create(FakeDevice device, FakeLayout? layout = null) => new(device, layout ?? new(), new FakePointer(), new FastTimeProvider());
@@ -235,6 +382,6 @@ public sealed class InputServiceTests
     private sealed class FastTimeProvider : TimeProvider
     {
         public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period) =>
-            System.CreateTimer(callback, state, dueTime == Timeout.InfiniteTimeSpan ? dueTime : TimeSpan.Zero, period);
+            System.CreateTimer(callback, state, dueTime <= TimeSpan.FromMilliseconds(80) ? TimeSpan.Zero : dueTime, period);
     }
 }

@@ -30,7 +30,9 @@ dotnet test RemoteControl.slnx -c Release --no-build
 
 Для живой проверки нужен запущенный Path of Exile. Скрипт сохраняет MCP-ответы и JPEG; игровые действия проверены отдельно на POE1VM.
 
-Исходная API-регрессия: **78 локальных тестов, 46 живых проверок MCP**. Установщик и его VM-проверка описаны в [RELEASE.md](RELEASE.md).
+Локальные тесты запускаются командой выше; исходная VM-регрессия включала **46 живых проверок MCP**. Установщик и его VM-проверка описаны в [RELEASE.md](RELEASE.md).
+
+`computer.key_down(key, holdTimeoutMs)` удерживает клавишу максимум 1–60000 мс; `computer.key_up(key)` отпускает её раньше. В `computer.sequence` доступны действия `key_down`/`key_up` и необязательные `resetBefore`/`resetAfter` (оба `false`). Сброс отпускает все виртуальные клавиши и кнопки мыши. Подробный пример есть в [DESIGN.md](DESIGN.md).
 
 - Скриншоты: JPEG quality 75 по умолчанию.
 - Shell и pip/npm: обычное пользовательское окружение, без sandbox.

@@ -49,6 +49,15 @@ public static class ToolDocumentation
         Пример: {"key":"F1"}
         Пример: {"key":4}
         """;
+    public const string KeyDown = """
+        Удержать физическую HID-клавишу или модификатор. key принимает ту же строку или HID-байт, что press.
+        holdTimeoutMs обязателен: 1..60000 мс. Клавиша автоматически отпускается по истечении времени, если key_up или release_all не вызваны раньше.
+        Повторный key_down той же клавиши обновляет срок удержания. Удержание сохраняется после завершения sequence.
+        Ошибки: invalid_key, invalid_timeout, driver_unavailable, driver_write_failed.
+        """ + InputResult + "\nПример: {\"key\":\"CTRL\",\"holdTimeoutMs\":2000}";
+    public const string KeyUp = """
+        Отпустить клавишу, удерживаемую key_down. key принимает ту же строку или HID-байт; после истечения таймаута повторное отпускание успешно и ничего не меняет.
+        """ + InputResult + "\nПример: {\"key\":\"CTRL\"}";
     public const string Hotkey = """
         Одновременно нажать сочетание, затем отпустить клавиши и модификаторы. Массив смешивает ASCII, мнемоники и HID-байты; максимум 6 различных обычных клавиш плюс модификаторы. Повторы объединяются.
         Неверная клавиша/пустой массив/переполнение — invalid_key до отправки ввода. Для буквального + используйте массив.
@@ -64,10 +73,12 @@ public static class ToolDocumentation
         "\nПример: {\"x1\":100,\"y1\":200,\"x2\":500,\"y2\":200}";
     public const string Sequence = """
         Выполнить действия по порядку одним запросом; первая ошибка останавливает список без отката уже выполненных действий. [] — успешный пустой список.
-        op и используемые поля: click/double_click(x,y), type(text), press(key), hotkey(keys), scroll(delta), drag(x,y,x2,y2). Остальные поля не используются.
+        op и используемые поля: click/double_click(x,y), type(text), press(key), key_down(key,holdTimeoutMs), key_up(key), hotkey(keys), scroll(delta), drag(x,y,x2,y2).
+        resetBefore и resetAfter — независимые bool, по умолчанию false. Первый отпускает все виртуальные клавиши/кнопки до действий; второй — после начала выполнения, в том числе при ошибке действия или отмене. Без этих флагов key_down остаётся активным после sequence до key_up, таймаута или release_all.
+        Все key_down и их таймауты проверяются до начала действий и начального сброса. Диапазон holdTimeoutMs: 1..60000 мс.
         """ + InputResult + """
         
-        Пример: {"actions":[{"op":"click","x":800,"y":500},{"op":"hotkey","keys":["CTRL",4]},{"op":"press","key":"BACKSPACE"},{"op":"type","text":"hello"}]}
+        Пример: {"resetBefore":true,"resetAfter":true,"actions":[{"op":"key_down","key":"CTRL","holdTimeoutMs":2000},{"op":"click","x":800,"y":500},{"op":"key_up","key":"CTRL"}]}
         """;
     public const string RawMouse = """
         Отправить одно состояние мыши FakerInput без траектории и задержек. Buttons заменяет набор удерживаемых кнопок; автоматического отпускания нет.
@@ -148,4 +159,3 @@ public static class ToolDocumentation
     public const string LuaCode = "Lua-код с bindings из описания. Используйте return для output: 'return 2+2'. press(4), press('a'), press('F1'), hotkey({'CTRL',4}) используют общий формат клавиш.";
     public const string LuaSession = "null/пропуск — новый Lua state; строка — сохранить globals, отдельно от shell sessions, без учёта регистра. Timeout и завершение worker сбрасывают state; close_session к Lua не применяется.";
 }
-

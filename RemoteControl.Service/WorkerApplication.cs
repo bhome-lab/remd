@@ -12,7 +12,7 @@ internal static class WorkerApplication
     public static async Task RunAsync(string pipeName, CancellationToken cancellationToken)
     {
         using var device = new FakerInputDevice();
-        var input = new InputService(device, new WindowsKeyboardLayout(), new WindowsDesktopPointer());
+        using var input = new InputService(device, new WindowsKeyboardLayout(), new WindowsDesktopPointer());
         var screen = new WindowsScreenService();
         using var environments = new EnvironmentService();
         await using var execution = new ExecutionService(environments);

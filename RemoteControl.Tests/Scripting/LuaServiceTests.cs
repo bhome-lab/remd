@@ -68,10 +68,12 @@ public sealed class LuaServiceTests
         public Task<InputResult> DoubleClickAsync(int x, int y, CancellationToken cancellationToken) => Fail();
         public Task<InputResult> TypeAsync(string text, CancellationToken cancellationToken) => Fail();
         public Task<InputResult> PressAsync(KeyInput key, CancellationToken cancellationToken) => Fail();
+        public Task<InputResult> KeyDownAsync(KeyInput key, int holdTimeoutMs, CancellationToken cancellationToken) => Fail();
+        public Task<InputResult> KeyUpAsync(KeyInput key, CancellationToken cancellationToken) => Fail();
         public Task<InputResult> HotkeyAsync(KeyChord keys, CancellationToken cancellationToken) => Fail();
         public Task<InputResult> ScrollAsync(int delta, CancellationToken cancellationToken) => Fail();
         public Task<InputResult> DragAsync(int x1, int y1, int x2, int y2, CancellationToken cancellationToken) => Fail();
-        public Task<InputResult> SequenceAsync(InputAction[] actions, CancellationToken cancellationToken) => Fail();
+        public Task<InputResult> SequenceAsync(InputAction[] actions, bool resetBefore, bool resetAfter, CancellationToken cancellationToken) => Fail();
         public Task<InputResult> RawMouseAsync(byte[] report, CancellationToken cancellationToken) => Fail();
         public Task<InputResult> RawKeyboardAsync(byte[] report, CancellationToken cancellationToken) => Fail();
         public Task<InputResult> ReleaseAllAsync(CancellationToken cancellationToken) => Fail();
