@@ -37,6 +37,8 @@ if (-not $Compiler) {
     if ($LASTEXITCODE -ne 0) { throw 'NSIS extraction failed.' }
     $Compiler = Join-Path $payload 'nsis-tool\makensis.exe'
 }
+$compilerVersion = (& $Compiler /VERSION | Select-Object -First 1).Trim()
+if ($compilerVersion -ne 'v3.12') { throw "NSIS 3.12 is required; found $compilerVersion" }
 & $Compiler "/DVERSION=$Version" "/DPUBLISH=$publish" "/DPAYLOAD=$payload" "/DOUTPUT=$setup" `
     (Join-Path $PSScriptRoot 'RemoteControl.nsi')
 if ($LASTEXITCODE -ne 0) { throw 'NSIS build failed.' }
