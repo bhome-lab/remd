@@ -1,0 +1,6 @@
+**/bin/
+**/obj/
+artifacts/
+installer/out/
+*.user
+*.suo

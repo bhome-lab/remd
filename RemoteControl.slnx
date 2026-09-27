@@ -1,0 +1,6 @@
+<Solution>
+  <Project Path="RemoteControl.Core/RemoteControl.Core.csproj" />
+  <Project Path="RemoteControl.Infrastructure/RemoteControl.Infrastructure.csproj" />
+  <Project Path="RemoteControl.Service/RemoteControl.Service.csproj" />
+  <Project Path="RemoteControl.Tests/RemoteControl.Tests.csproj" />
+</Solution>
