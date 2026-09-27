@@ -2,7 +2,8 @@ param(
     [string]$InstallDir = (Join-Path $env:ProgramFiles 'RemoteControl'),
     [string]$Uri = 'http://127.0.0.1:8080/mcp',
     [string]$TokenFile = (Join-Path $env:ProgramData 'RemoteControl\control.token'),
-    [switch]$Json
+    [switch]$Json,
+    [string]$ReportPath
 )
 
 $ErrorActionPreference = 'Stop'
@@ -23,6 +24,7 @@ function Call([string]$name, [hashtable]$argumentsObject = @{}) {
 }
 
 $exe = Join-Path $InstallDir 'RemoteControl.Service.exe'
+Check 'diagnostic process' ([Environment]::Is64BitProcess) '64-bit PowerShell'
 Check 'application' (Test-Path -LiteralPath $exe) $exe
 foreach ($file in 'FakerInputWrapper.dll','FakerInputDll.dll') {
     $path = Join-Path $InstallDir $file
@@ -32,8 +34,14 @@ foreach ($file in 'FakerInputWrapper.dll','FakerInputDll.dll') {
 
 $service = Get-CimInstance Win32_Service -Filter "Name='RemoteControlSvc'" -ErrorAction SilentlyContinue
 Check 'service' ($null -ne $service -and $service.State -eq 'Running') "state=$($service.State)"
-$driver = & "$env:WINDIR\System32\pnputil.exe" /enum-devices /connected /deviceid 'ROOT\FakerInput' 2>&1 | Out-String
-$present = $driver -match 'FakerInput' -and $driver -notmatch 'No devices were found'
+$systemDirectory = if ([Environment]::Is64BitProcess) { 'System32' } else { 'Sysnative' }
+$pnputil = Join-Path $env:WINDIR "$systemDirectory\pnputil.exe"
+for ($attempt = 0; $attempt -lt 15; $attempt++) {
+    $driver = & $pnputil /enum-devices /connected /deviceid 'ROOT\FakerInput' 2>&1 | Out-String
+    $present = $driver -match 'FakerInput' -and $driver -notmatch 'No devices were found'
+    if ($present) { break }
+    Start-Sleep -Seconds 2
+}
 Check 'FakerInput device' $present 'ROOT\FakerInput connected'
 
 $token = if (Test-Path -LiteralPath $TokenFile) { (Get-Content -LiteralPath $TokenFile -Raw).Trim() } else { $env:REMOTE_CONTROL_TOKEN }
@@ -41,9 +49,19 @@ Check 'control token' (-not [string]::IsNullOrWhiteSpace($token)) 'Token file or
 
 if ($service.State -eq 'Running' -and $token) {
     try {
-        $health = Invoke-RestMethod -Uri ($Uri -replace '/mcp$', '/healthz') -TimeoutSec 5
+        $health = $null
+        $status = $null
+        $lastError = ''
+        for ($attempt = 0; $attempt -lt 15; $attempt++) {
+            try {
+                $health = Invoke-RestMethod -Uri ($Uri -replace '/mcp$', '/healthz') -TimeoutSec 5
+                if ($health.ok) { $status = Call 'computer.status' }
+                if ($status.worker.state -eq 'running' -and $status.input.driver.connected) { break }
+            } catch { $lastError = $_.Exception.Message }
+            Start-Sleep -Seconds 2
+        }
         Check 'HTTP health' ($health.ok -eq $true) 'GET /healthz'
-        $status = Call 'computer.status'
+        if (-not $status) { throw "MCP not ready: $lastError" }
         Check 'desktop worker' ($status.worker.state -eq 'running') "state=$($status.worker.state); error=$($status.worker.error)"
         Check 'FakerInput connection' ($status.input.driver.connected -and $status.input.driver.signed) "error=$($status.input.driver.error)"
         foreach ($runtime in 'nodejs','python') {
@@ -70,6 +88,9 @@ if ($service.State -eq 'Running' -and $token) {
 
 $passed = @($checks | Where-Object { $_.required -and -not $_.ok }).Count -eq 0
 $result = [pscustomobject]@{ok=$passed;checks=$checks}
+if ($ReportPath) {
+    $result | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $ReportPath -Encoding UTF8
+}
 if ($Json) { $result | ConvertTo-Json -Depth 6 } else {
     foreach ($check in $checks) {
         $state = if ($check.ok) { 'OK' } elseif ($check.required) { 'FAIL' } else { 'OPTIONAL' }

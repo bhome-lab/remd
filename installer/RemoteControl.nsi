@@ -46,9 +46,18 @@ Section "RemoteControl" SEC_MAIN
   SetRegView 64
   InitPluginsDir
   SetOutPath "$PLUGINSDIR"
+  File "${__FILEDIR__}\Stop-Existing-Service.ps1"
+  nsExec::ExecToLog '"$WINDIR\Sysnative\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "$PLUGINSDIR\Stop-Existing-Service.ps1"'
+  Pop $0
+  ${If} $0 != 0
+    MessageBox MB_ICONSTOP "Could not stop RemoteControlSvc before update (exit $0)."
+    Abort
+  ${EndIf}
+
+  SetOutPath "$PLUGINSDIR"
   File "${PAYLOAD}\FakerInput_Setup_0.1.1_x64.msi"
   DetailPrint "Installing signed FakerInput 0.1.1..."
-  nsExec::ExecToLog '"$SYSDIR\msiexec.exe" /i "$PLUGINSDIR\FakerInput_Setup_0.1.1_x64.msi" /qn /norestart'
+  nsExec::ExecToLog '"$WINDIR\Sysnative\msiexec.exe" /i "$PLUGINSDIR\FakerInput_Setup_0.1.1_x64.msi" /qn /norestart'
   Pop $0
   ${If} $0 != 0
   ${AndIf} $0 != 3010
@@ -61,7 +70,7 @@ Section "RemoteControl" SEC_MAIN
   File "${PAYLOAD}\FakerInputWrapper.dll"
   File "${PAYLOAD}\FakerInputDll.dll"
 
-  nsExec::ExecToLog '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "$INSTDIR\Manage-Service.ps1" -Action Install -InstallDir "$INSTDIR"'
+  nsExec::ExecToLog '"$WINDIR\Sysnative\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "$INSTDIR\Manage-Service.ps1" -Action Install -InstallDir "$INSTDIR"'
   Pop $0
   ${If} $0 != 0
     MessageBox MB_ICONSTOP "RemoteControlSvc setup failed (exit $0)."
@@ -78,8 +87,12 @@ Section "RemoteControl" SEC_MAIN
   WriteRegDWORD HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\RemoteControl" "NoRepair" 1
 
   DetailPrint "Running installation diagnostics..."
-  nsExec::ExecToLog '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "$INSTDIR\Test-Installation.ps1" -InstallDir "$INSTDIR"'
+  nsExec::ExecToStack '"$WINDIR\Sysnative\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "$INSTDIR\Test-Installation.ps1" -InstallDir "$INSTDIR" -ReportPath "$INSTDIR\install-diagnostics.json"'
   Pop $0
+  Pop $1
+  FileOpen $2 "$INSTDIR\install-diagnostics.log" w
+  FileWrite $2 "$1"
+  FileClose $2
   ${If} $0 != 0
     MessageBox MB_ICONEXCLAMATION "RemoteControl was installed, but diagnostics found a problem. Run Test-Installation.ps1 after checking the log."
     SetErrorLevel 1
@@ -88,7 +101,7 @@ SectionEnd
 
 Section "Uninstall"
   SetRegView 64
-  nsExec::ExecToLog '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "$INSTDIR\Manage-Service.ps1" -Action Uninstall -InstallDir "$INSTDIR"'
+  nsExec::ExecToLog '"$WINDIR\Sysnative\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "$INSTDIR\Manage-Service.ps1" -Action Uninstall -InstallDir "$INSTDIR"'
   Pop $0
   ${If} $0 != 0
     MessageBox MB_ICONSTOP "Could not remove RemoteControlSvc (exit $0)."

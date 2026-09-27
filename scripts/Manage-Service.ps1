@@ -1,5 +1,5 @@
 param(
-    [Parameter(Mandatory=$true)][ValidateSet('Install','Uninstall')][string]$Action,
+    [Parameter(Mandatory=$true)][ValidateSet('Install','Stop','Uninstall')][string]$Action,
     [string]$InstallDir = (Join-Path $env:ProgramFiles 'RemoteControl'),
     [string]$Listen = 'http://127.0.0.1:8080'
 )
@@ -11,9 +11,11 @@ if ($existing -and $existing.Status -ne 'Stopped') {
     Stop-Service -Name $name -Force
     $existing.WaitForStatus('Stopped', [TimeSpan]::FromSeconds(20))
 }
+if ($Action -eq 'Stop') { exit 0 }
 if ($Action -eq 'Uninstall') {
     if ($existing) {
-        & "$env:WINDIR\System32\sc.exe" delete $name | Out-Null
+        $systemDirectory = if ([Environment]::Is64BitProcess) { 'System32' } else { 'Sysnative' }
+        & (Join-Path $env:WINDIR "$systemDirectory\sc.exe") delete $name | Out-Null
         if ($LASTEXITCODE -ne 0) { throw "Service removal failed: $LASTEXITCODE" }
     }
     exit 0

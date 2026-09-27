@@ -48,7 +48,9 @@ internal static class FakerInputDiscovery
         {
             StartInfo = new ProcessStartInfo
             {
-                FileName = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "pnputil.exe"),
+                FileName = Environment.Is64BitProcess
+                    ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "pnputil.exe")
+                    : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "Sysnative", "pnputil.exe"),
                 RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true
             }
         };
