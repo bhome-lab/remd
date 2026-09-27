@@ -13,5 +13,8 @@ public sealed record DesktopStatus(bool Interactive, string Worker, string Backe
 public sealed record WorkerStatus(string State, string? Error = null);
 public sealed record ComputerStatus(string Service, string Runtime, DesktopStatus Desktop, WorkerStatus Worker, InputStatus Input, Dictionary<string, bool> Runtimes, string[] Environments);
 public enum CaptureKind { Primary, Region, Monitor, Window }
-public sealed record CaptureRequest(CaptureKind Kind = CaptureKind.Primary, int X = 0, int Y = 0, int Width = 0, int Height = 0, int Monitor = 0, long WindowId = 0);
+public sealed record CaptureRequest(
+    CaptureKind Kind = CaptureKind.Primary, int X = 0, int Y = 0, int Width = 0, int Height = 0,
+    int Monitor = 0, long WindowId = 0, string Format = "jpeg", int? Quality = null,
+    int? MaxWidth = null, int? MaxHeight = null, int? MaxBytes = null);
 public sealed record CaptureResult(bool Ok, byte[]? Data = null, string MimeType = "image/jpeg", string? Error = null);

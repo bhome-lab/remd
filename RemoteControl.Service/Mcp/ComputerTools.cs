@@ -24,21 +24,33 @@ public sealed class ComputerTools(
         return new("running", ".NET 10", desktop, worker.Status, inputStatus, shell.Runtimes, shell.Environments);
     }
 
-    [McpServerTool(Name = "computer.screenshot"), Description("Capture the local primary desktop and return an MCP image.")]
-    public Task<IEnumerable<ContentBlock>> Screenshot(CancellationToken cancellationToken) =>
-        CaptureAsync(new(), cancellationToken);
+    [McpServerTool(Name = "computer.screenshot"), Description(ToolDocumentation.Screenshot)]
+    public Task<IEnumerable<ContentBlock>> Screenshot(
+        string format = "jpeg", int? quality = null, int? maxWidth = null, int? maxHeight = null,
+        int? maxBytes = null, CancellationToken cancellationToken = default) =>
+        CaptureAsync(new(Format: format, Quality: quality, MaxWidth: maxWidth, MaxHeight: maxHeight, MaxBytes: maxBytes), cancellationToken);
 
-    [McpServerTool(Name = "computer.screenshot_region"), Description("Capture a local desktop region and return an MCP image.")]
-    public Task<IEnumerable<ContentBlock>> ScreenshotRegion(int x, int y, int width, int height, CancellationToken cancellationToken) =>
-        CaptureAsync(new(CaptureKind.Region, x, y, width, height), cancellationToken);
+    [McpServerTool(Name = "computer.screenshot_region"), Description(ToolDocumentation.ScreenshotRegion)]
+    public Task<IEnumerable<ContentBlock>> ScreenshotRegion(
+        int x, int y, int width, int height, string format = "jpeg", int? quality = null,
+        int? maxWidth = null, int? maxHeight = null, int? maxBytes = null,
+        CancellationToken cancellationToken = default) =>
+        CaptureAsync(new(CaptureKind.Region, x, y, width, height, Format: format, Quality: quality,
+            MaxWidth: maxWidth, MaxHeight: maxHeight, MaxBytes: maxBytes), cancellationToken);
 
-    [McpServerTool(Name = "computer.screenshot_monitor"), Description("Capture one local monitor by zero-based index.")]
-    public Task<IEnumerable<ContentBlock>> ScreenshotMonitor(int monitor, CancellationToken cancellationToken) =>
-        CaptureAsync(new(CaptureKind.Monitor, Monitor: monitor), cancellationToken);
+    [McpServerTool(Name = "computer.screenshot_monitor"), Description(ToolDocumentation.ScreenshotMonitor)]
+    public Task<IEnumerable<ContentBlock>> ScreenshotMonitor(
+        int monitor, string format = "jpeg", int? quality = null, int? maxWidth = null,
+        int? maxHeight = null, int? maxBytes = null, CancellationToken cancellationToken = default) =>
+        CaptureAsync(new(CaptureKind.Monitor, Monitor: monitor, Format: format, Quality: quality,
+            MaxWidth: maxWidth, MaxHeight: maxHeight, MaxBytes: maxBytes), cancellationToken);
 
-    [McpServerTool(Name = "computer.screenshot_window"), Description("Capture a visible top-level window by handle returned from computer.windows.")]
-    public Task<IEnumerable<ContentBlock>> ScreenshotWindow(long windowId, CancellationToken cancellationToken) =>
-        CaptureAsync(new(CaptureKind.Window, WindowId: windowId), cancellationToken);
+    [McpServerTool(Name = "computer.screenshot_window"), Description(ToolDocumentation.ScreenshotWindow)]
+    public Task<IEnumerable<ContentBlock>> ScreenshotWindow(
+        long windowId, string format = "jpeg", int? quality = null, int? maxWidth = null,
+        int? maxHeight = null, int? maxBytes = null, CancellationToken cancellationToken = default) =>
+        CaptureAsync(new(CaptureKind.Window, WindowId: windowId, Format: format, Quality: quality,
+            MaxWidth: maxWidth, MaxHeight: maxHeight, MaxBytes: maxBytes), cancellationToken);
 
     [McpServerTool(Name = "computer.windows"), Description("List visible top-level windows on the local desktop.")]
     public Task<WindowInfo[]> Windows(CancellationToken cancellationToken) => screen.GetWindowsAsync(cancellationToken);

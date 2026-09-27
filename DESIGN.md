@@ -6,7 +6,7 @@
 Windows Service (LocalSystem, HTTP /mcp, статический токен)
   └─ DesktopWorker (тот же exe, активная пользовательская сессия)
        ├─ FakerInput: клавиатура и мышь
-       ├─ desktop: окна и JPEG
+       ├─ desktop: окна и JPEG/PNG
        ├─ PowerShell / Node.js / Python: код, сессии, pip/npm
        └─ Lua: последовательности, циклы, функции
 ```
@@ -50,10 +50,10 @@ HTTP MCP использует официальный C# SDK, Streamable HTTP и 
 computer.status()
 computer.windows()
 
-computer.screenshot()
-computer.screenshot_monitor(monitor)
-computer.screenshot_window(windowId)
-computer.screenshot_region(x, y, width, height)
+computer.screenshot(format?, quality?, maxWidth?, maxHeight?, maxBytes?)
+computer.screenshot_monitor(monitor, format?, quality?, maxWidth?, maxHeight?, maxBytes?)
+computer.screenshot_window(windowId, format?, quality?, maxWidth?, maxHeight?, maxBytes?)
+computer.screenshot_region(x, y, width, height, format?, quality?, maxWidth?, maxHeight?, maxBytes?)
 
 computer.click(x, y)
 computer.double_click(x, y)
@@ -143,7 +143,13 @@ Worker не переключает ввод на SendInput при ошибке �
 
 ## Скриншоты
 
-Все четыре метода возвращают MCP `ImageContentBlock`: **JPEG, quality 75**, без параметра выбора формата. Изображение приходит прямо в результате tool.
+Все четыре метода возвращают MCP `ImageContentBlock`: по умолчанию **JPEG, quality 75, исходный размер**. Необязательные параметры одинаковы: `format` (`jpeg`/`png`), `quality` (1–100 только для JPEG), `maxWidth`, `maxHeight` и `maxBytes`. Для PNG `quality` нужно опустить. Изображение приходит прямо в результате tool.
+
+`maxWidth` и `maxHeight` пропорционально уменьшают кадр без увеличения. `maxBytes` задаёт строгий предел размера закодированного файла (1–16777216 байт); передача через MCP base64 больше. Worker захватывает кадр один раз и при необходимости уменьшает разрешение, сохраняя запрошенные формат и качество. Если кадр не помещается даже при минимальном размере, возвращается `image_budget_unreachable`; неверные параметры дают `invalid_capture_options` до захвата. Область более 64 млн пикселей или 32768 пикселей по стороне даёт `capture_too_large` до выделения bitmap.
+
+```json
+{"x":100,"y":80,"width":1200,"height":800,"format":"jpeg","quality":70,"maxWidth":960,"maxBytes":120000}
+```
 
 - `screenshot`: основной монитор; размеры определяет worker.
 - `screenshot_monitor`: монитор по индексу с нуля.

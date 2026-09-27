@@ -1,6 +1,6 @@
 # RemoteControl
 
-MCP Windows Service на **.NET 10**: мышь, клавиатура, JPEG, PowerShell, Node.js, Python и Lua. Все действия выполняет worker активного пользователя.
+MCP Windows Service на **.NET 10**: мышь, клавиатура, JPEG/PNG, PowerShell, Node.js, Python и Lua. Все действия выполняет worker активного пользователя.
 
 ## Установка
 
@@ -34,7 +34,7 @@ dotnet test RemoteControl.slnx -c Release --no-build
 
 `computer.key_down(key, holdTimeoutMs)` удерживает клавишу максимум 1–60000 мс; `computer.key_up(key)` отпускает её раньше. В `computer.sequence` доступны действия `key_down`/`key_up` и необязательные `resetBefore`/`resetAfter` (оба `false`). Сброс отпускает все виртуальные клавиши и кнопки мыши. Подробный пример есть в [DESIGN.md](DESIGN.md).
 
-- Скриншоты: JPEG quality 75 по умолчанию.
+- Скриншоты: JPEG quality 75 по умолчанию; все четыре метода принимают `format` (`jpeg`/`png`), `quality` для JPEG, `maxWidth`, `maxHeight` и `maxBytes`.
 - Shell и pip/npm: обычное пользовательское окружение, без sandbox.
 - PowerShell, Node.js, Python: именованные persistent sessions.
 - JSON worker protocol: DTO и source generation.

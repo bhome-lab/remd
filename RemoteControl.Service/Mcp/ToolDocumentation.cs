@@ -12,7 +12,11 @@ public static class ToolDocumentation
         """;
 
     private const string InputResult = "\nРезультат: {ok,backend,error?}.";
-    private const string ImageResult = "\nРезультат: MCP image/jpeg, quality 75, исходный размер; при ошибке — текстовый код.";
+    private const string ImageResult = "\nРезультат: MCP image/jpeg или image/png; при ошибке — текстовый код.";
+    private const string ImageOptions = "\nОбщие параметры: format='jpeg'|'png' (по умолчанию jpeg); quality=1..100 только для JPEG (по умолчанию 75); " +
+        "maxWidth/maxHeight=1..32768 ограничивают размер без увеличения изображения; maxBytes=1..16777216 — строгий предел байт закодированного файла. " +
+        "При превышении maxBytes уменьшается разрешение того же кадра; format и quality не меняются. Base64 в MCP занимает больше места. " +
+        "Неверные параметры: invalid_capture_options; недостижимый предел: image_budget_unreachable; область более 64 млн пикселей или 32768 пикселей по стороне: capture_too_large.";
 
     public const string Status = """
         Состояние службы, пользовательского desktop, FakerInput и shell.
@@ -24,13 +28,13 @@ public static class ToolDocumentation
         Результат: [{handle,title}]; handle используется в screenshot_window. Пустой список также возможен при недоступном desktop.
         Пример: {}
         """;
-    public const string Screenshot = "Снимок всего основного монитора." + ImageResult + "\nПример: {}";
-    public const string ScreenshotRegion = "Снимок прямоугольника desktop; x/y могут быть отрицательными для соседнего монитора." + ImageResult +
-        "\nПример: {\"x\":100,\"y\":80,\"width\":640,\"height\":480}";
-    public const string ScreenshotMonitor = "Снимок монитора по индексу Windows; неверный индекс — monitor_not_found." + ImageResult +
-        "\nПример: {\"monitor\":0}";
-    public const string ScreenshotWindow = "Снимок экранного прямоугольника окна, включая рамку и перекрывающие окна; не фокусирует окно. Устаревший handle — window_not_found." + ImageResult +
-        "\nПример: {\"windowId\":123456}";
+    public const string Screenshot = "Снимок всего основного монитора." + ImageOptions + ImageResult + "\nПример: {\"format\":\"jpeg\",\"quality\":70,\"maxBytes\":120000}";
+    public const string ScreenshotRegion = "Снимок прямоугольника desktop; x/y могут быть отрицательными для соседнего монитора." + ImageOptions + ImageResult +
+        "\nПример: {\"x\":100,\"y\":80,\"width\":1200,\"height\":800,\"format\":\"jpeg\",\"quality\":70,\"maxWidth\":960,\"maxBytes\":120000}";
+    public const string ScreenshotMonitor = "Снимок монитора по индексу Windows; неверный индекс — monitor_not_found." + ImageOptions + ImageResult +
+        "\nПример: {\"monitor\":0,\"format\":\"png\",\"maxWidth\":1280}";
+    public const string ScreenshotWindow = "Снимок экранного прямоугольника окна, включая рамку и перекрывающие окна; не фокусирует окно. Устаревший handle — window_not_found." + ImageOptions + ImageResult +
+        "\nПример: {\"windowId\":123456,\"maxHeight\":720}";
 
     public const string Click = "Плавно переместить курсор и нажать/отпустить левую кнопку мыши. Задержки фиксированы." + InputResult +
         "\nПример: {\"x\":800,\"y\":500}";

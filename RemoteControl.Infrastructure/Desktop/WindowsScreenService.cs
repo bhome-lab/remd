@@ -1,3 +1,5 @@
+using System.Drawing;
+
 namespace RemoteControl.Infrastructure.Desktop;
 
 public readonly record struct ScreenBounds(int X, int Y, int Width, int Height);
@@ -9,7 +11,7 @@ public interface IDesktopScreen
     ScreenBounds PrimaryBounds { get; }
     bool TryGetMonitorBounds(int index, out ScreenBounds bounds);
     bool TryGetWindowBounds(long handle, out ScreenBounds bounds);
-    byte[] CaptureJpeg(ScreenBounds bounds, int quality);
+    Bitmap CaptureFrame(ScreenBounds bounds);
     WindowInfo[] EnumerateWindows();
 }
 
@@ -28,6 +30,8 @@ public sealed class WindowsScreenService : IScreenService
     public Task<CaptureResult> CaptureAsync(CaptureRequest request, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        if (!ScreenshotEncoder.TryGetOptions(request, out var options))
+            return Task.FromResult(new CaptureResult(false, Error: "invalid_capture_options"));
         if (!_desktop.IsSupported) return Task.FromResult(new CaptureResult(false, Error: "screen_unavailable"));
 
         try
@@ -50,10 +54,13 @@ public sealed class WindowsScreenService : IScreenService
 
             if (bounds.Width <= 0 || bounds.Height <= 0)
                 return Task.FromResult(new CaptureResult(false, Error: "screen_unavailable"));
+            if (bounds.Width > 32768 || bounds.Height > 32768 || (long)bounds.Width * bounds.Height > 64_000_000)
+                return Task.FromResult(new CaptureResult(false, Error: "capture_too_large"));
 
-            var data = _desktop.CaptureJpeg(bounds, 75);
-            return Task.FromResult(new CaptureResult(true, data));
+            using var frame = _desktop.CaptureFrame(bounds);
+            return Task.FromResult(ScreenshotEncoder.Encode(frame, options, cancellationToken));
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
         catch (Exception exception)
         {
             return Task.FromResult(new CaptureResult(false, Error: $"screen_unavailable:{exception.Message}"));

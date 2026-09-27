@@ -11,17 +11,20 @@ public sealed class GdiDesktopScreen : IDesktopScreen
     public bool IsInteractive => Environment.UserInteractive;
     public ScreenBounds PrimaryBounds => new(0, 0, Native.GetSystemMetrics(0), Native.GetSystemMetrics(1));
 
-    public byte[] CaptureJpeg(ScreenBounds bounds, int quality)
+    public Bitmap CaptureFrame(ScreenBounds bounds)
     {
-        using var bitmap = new Bitmap(bounds.Width, bounds.Height, PixelFormat.Format24bppRgb);
-        using (var graphics = Graphics.FromImage(bitmap))
+        var bitmap = new Bitmap(bounds.Width, bounds.Height, PixelFormat.Format24bppRgb);
+        try
+        {
+            using var graphics = Graphics.FromImage(bitmap);
             graphics.CopyFromScreen(bounds.X, bounds.Y, 0, 0, new Size(bounds.Width, bounds.Height));
-        using var stream = new MemoryStream();
-        var codec = ImageCodecInfo.GetImageEncoders().First(candidate => candidate.FormatID == ImageFormat.Jpeg.Guid);
-        using var parameters = new EncoderParameters(1);
-        parameters.Param[0] = new EncoderParameter(System.Drawing.Imaging.Encoder.Quality, (long)quality);
-        bitmap.Save(stream, codec, parameters);
-        return stream.ToArray();
+            return bitmap;
+        }
+        catch
+        {
+            bitmap.Dispose();
+            throw;
+        }
     }
 
     public WindowInfo[] EnumerateWindows()
