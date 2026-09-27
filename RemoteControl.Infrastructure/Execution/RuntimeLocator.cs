@@ -7,11 +7,21 @@ internal static class RuntimeLocator
         var extensions = OperatingSystem.IsWindows() && !Path.HasExtension(name)
             ? new[] { ".exe", ".cmd", ".bat", "" }
             : new[] { "" };
-        foreach (var directory in (Environment.GetEnvironmentVariable("PATH") ?? "").Split(Path.PathSeparator))
+        var pathValues = new List<string> { Environment.GetEnvironmentVariable("PATH") ?? "" };
+        if (OperatingSystem.IsWindows())
         {
+            // Refresh both registry-backed PATH values on every call. The worker need not restart
+            // when Node.js or Python is installed after it was launched.
+            pathValues.Add(Environment.GetEnvironmentVariable("Path", EnvironmentVariableTarget.Machine) ?? "");
+            pathValues.Add(Environment.GetEnvironmentVariable("Path", EnvironmentVariableTarget.User) ?? "");
+        }
+        foreach (var directory in pathValues.SelectMany(value => value.Split(Path.PathSeparator)))
+        {
+            var root = Environment.ExpandEnvironmentVariables(directory.Trim('"'));
+            if (string.IsNullOrWhiteSpace(root)) continue;
             foreach (var extension in extensions)
             {
-                var candidate = Path.Combine(directory.Trim('"'), name + extension);
+                var candidate = Path.Combine(root, name + extension);
                 if (File.Exists(candidate) && !candidate.Contains(@"\WindowsApps\", StringComparison.OrdinalIgnoreCase))
                     return candidate;
             }

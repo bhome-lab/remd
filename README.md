@@ -4,33 +4,33 @@ MCP Windows Service на **.NET 10**: мышь, клавиатура, JPEG, Powe
 
 ## Установка
 
-Нужны .NET 10 ASP.NET Core Runtime x64, установленный [FakerInput 0.1.1](https://github.com/Ryochan7/FakerInput/releases/tag/v0.1.1), Node.js и Python для соответствующих runtime. PowerShell включён в приложение через SDK.
+Скачайте `RemoteControl-Setup.exe` из [GitHub Releases](https://github.com/bhome-lab/remd/releases) и запустите от администратора. Установщик NSIS включает приложение с .NET 10 LTS, подписанный [FakerInput 0.1.1](https://github.com/Ryochan7/FakerInput/releases/tag/v0.1.1) и его DLL. Сервис запускается автоматически на `127.0.0.1:8080`.
 
-Распакуйте release ZIP и выполните от администратора:
+Node.js и Python установщик не меняет. Они нужны только для соответствующих `computer.run` и `computer.environment`. Если runtime отсутствует, вызов возвращает `environment_unavailable`; после установки следующий вызов проверяет наличие заново.
+
+После установки выполните от администратора:
 
 ```powershell
-.\install-service.ps1 -Token 'HOME_TOKEN' `
-  -FakerInputDirectory 'C:\Tools\DS4Windows' `
-  -Listen 'http://0.0.0.0:8080'
+& "$env:ProgramFiles\RemoteControl\Test-Installation.ps1"
 ```
 
-`FakerInputDirectory` должен содержать `FakerInputWrapper.dll` и `FakerInputDll.dll`. Установщик копирует их рядом с executable. DS4Windows как приложение для работы сервиса не требуется.
+Диагностика проверяет службу, подписи DLL, устройство FakerInput, подключение worker, MCP, захват экрана и выполнение доступных Node.js/Python. Отсутствующие Node.js/Python показываются отдельно как необязательные компоненты.
 
-MCP: `http://<computer>:8080/mcp`, header `X-Admin-Token: HOME_TOKEN`. Каждый endpoint управляет только своим компьютером. Без `-Listen` служба слушает `127.0.0.1:8080`.
+Токен создаётся при первом запуске в `%ProgramData%\RemoteControl\control.token` с доступом SYSTEM/Administrators. MCP: `http://127.0.0.1:8080/mcp`, header `X-Admin-Token` со значением этого файла. Для ручной установки и иного адреса прослушивания остаётся `install-service.ps1`.
 
 ## Сборка и проверка
 
 ```powershell
 dotnet build RemoteControl.slnx -c Release
 dotnet test RemoteControl.slnx -c Release --no-build
-dotnet publish RemoteControl.Service -c Release -r win-x64 --self-contained false
+./installer/Build-Installer.ps1 -Version 1.0.0
 .\scripts\Verify-Mcp.ps1 -Uri 'http://127.0.0.1:18080/mcp' -Token 'HOME_TOKEN'
 .\scripts\Verify-Worker.ps1 -Uri 'http://127.0.0.1:18080/mcp' -Token 'HOME_TOKEN'
 ```
 
 Для живой проверки нужен запущенный Path of Exile. Скрипт сохраняет MCP-ответы и JPEG; игровые действия проверены отдельно на POE1VM.
 
-Проверенная сборка: [RemoteControl-refactor.zip](artifacts/RemoteControl-refactor.zip). Результат: **78 локальных тестов, 46 живых проверок MCP**, input schema всех 21 tool сохранены.
+Исходная API-регрессия: **78 локальных тестов, 46 живых проверок MCP**. Установщик и его VM-проверка описаны в [RELEASE.md](RELEASE.md).
 
 - Скриншоты: JPEG quality 75 по умолчанию.
 - Shell и pip/npm: обычное пользовательское окружение, без sandbox.

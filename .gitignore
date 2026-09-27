@@ -2,5 +2,6 @@
 **/obj/
 artifacts/
 installer/out/
+installer/payload/
 *.user
 *.suo

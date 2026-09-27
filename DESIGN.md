@@ -42,7 +42,7 @@ Windows Service (LocalSystem, HTTP /mcp, статический токен)
 - Состояние worker: `starting` до pipe-handshake, затем `running`. При смене активной Windows session запускается worker нового пользователя; прежние shell-сессии завершаются.
 - После потери ответа уже отправленная команда не повторяется: возвращается `worker_response_lost`.
 
-HTTP MCP использует официальный C# SDK, Streamable HTTP и `/mcp`. Для каждого MCP-запроса нужен `X-Admin-Token`; значение задаётся установщиком в environment службы. `/healthz` возвращает состояние HTTP-сервера.
+HTTP MCP использует официальный C# SDK, Streamable HTTP и `/mcp`. Для каждого MCP-запроса нужен `X-Admin-Token`; сервис создаёт токен в `%ProgramData%\RemoteControl\control.token` при первом запуске, либо использует явно заданный `Control:Token`/`REMOTE_CONTROL_TOKEN`. `/healthz` возвращает состояние HTTP-сервера.
 
 ## Все MCP tools
 

@@ -9,6 +9,8 @@
 
   <ItemGroup>
     <Content Include="..\install-service.ps1" Link="install-service.ps1" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="..\scripts\Test-Installation.ps1" Link="Test-Installation.ps1" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="..\scripts\Manage-Service.ps1" Link="Manage-Service.ps1" CopyToPublishDirectory="PreserveNewest" />
     <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="10.0.12" />
     <PackageReference Include="ModelContextProtocol.AspNetCore" Version="2.2.0" />
     <ProjectReference Include="../RemoteControl.Infrastructure/RemoteControl.Infrastructure.csproj" />

@@ -42,6 +42,8 @@ public sealed class EnvironmentService : IEnvironmentService, IDisposable
             name = RuntimeNames.EnvironmentName(name);
             path = PathFor(name);
             if (runtime is not ("python" or "nodejs")) return new(false, runtime, name, path, [], "runtime_not_found");
+            var executable = runtime == "python" ? RuntimeLocator.Find("python") : RuntimeLocator.Find(OperatingSystem.IsWindows() ? "npm.cmd" : "npm");
+            if (executable is null) return new(false, runtime, name, path, packages, "environment_unavailable");
             using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _lifetime.Token);
             var gate = _gates.GetOrAdd(name, _ => new SemaphoreSlim(1, 1));
             await gate.WaitAsync(linked.Token);
@@ -51,16 +53,15 @@ public sealed class EnvironmentService : IEnvironmentService, IDisposable
                 if (runtime == "python")
                 {
                     if (!Exists(runtime, name))
-                        await RunAsync(RuntimeLocator.Find("python") ?? "python", ["-m", "venv", path], Root, linked.Token);
+                        await RunAsync(executable, ["-m", "venv", path], Root, linked.Token);
                     if (packages.Length > 0)
                         await RunAsync(PythonFor(name), ["-m", "pip", "install", "--disable-pip-version-check", .. packages], path, linked.Token);
                 }
                 else
                 {
                     Directory.CreateDirectory(path);
-                    var npm = RuntimeLocator.Find(OperatingSystem.IsWindows() ? "npm.cmd" : "npm") ?? "npm";
-                    if (!Exists(runtime, name)) await RunAsync(npm, ["init", "-y"], path, linked.Token);
-                    if (packages.Length > 0) await RunAsync(npm, ["install", .. packages], path, linked.Token);
+                    if (!Exists(runtime, name)) await RunAsync(executable, ["init", "-y"], path, linked.Token);
+                    if (packages.Length > 0) await RunAsync(executable, ["install", .. packages], path, linked.Token);
                 }
                 return new(true, runtime, name, path, packages);
             }

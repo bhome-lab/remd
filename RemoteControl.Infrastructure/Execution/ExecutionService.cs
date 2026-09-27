@@ -29,6 +29,15 @@ public sealed class ExecutionService(EnvironmentService environments) : IExecuti
             ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
             if (runtime is not ("powershell" or "python" or "nodejs")) return Result(new(false, "", "", -1, "runtime_not_found"));
             if (runtime == "powershell" && environment is not null) return Result(new(false, "", "", -1, "environment_not_supported"));
+            // Resolve on every request so a runtime installed later works without restarting the worker.
+            var installedRuntime = runtime switch
+            {
+                "python" => RuntimeLocator.Find("python"),
+                "nodejs" => RuntimeLocator.Find("node"),
+                _ => null
+            };
+            if (runtime != "powershell" && installedRuntime is null)
+                return Result(new(false, "", "", -1, "environment_unavailable"));
             if (environment is not null)
             {
                 environment = RuntimeNames.EnvironmentName(environment);
@@ -37,9 +46,9 @@ public sealed class ExecutionService(EnvironmentService environments) : IExecuti
             using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _lifetime.Token);
             deadline.CancelAfter(Math.Max(1, timeoutMs));
             var directory = environment is null ? Environment.CurrentDirectory : environments.PathFor(environment);
-            var executable = runtime == "python"
-                ? environment is null ? RuntimeLocator.Find("python") ?? "python" : environments.PythonFor(environment)
-                : RuntimeLocator.Find("node") ?? "node";
+            var executable = runtime == "python" && environment is not null
+                ? environments.PythonFor(environment)
+                : installedRuntime ?? "";
 
             if (session is not null)
             {

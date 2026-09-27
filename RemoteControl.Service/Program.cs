@@ -20,6 +20,7 @@ if (args.Any(arg => string.Equals(arg, "--desktop-worker", StringComparison.Ordi
 var builder = WebApplication.CreateBuilder(args);
 builder.Host.UseWindowsService(options => options.ServiceName = "RemoteControlSvc");
 
+builder.Services.AddSingleton<ControlTokenProvider>();
 builder.Services.AddSingleton<IWorkerProcessLauncher, UserWorkerProcessLauncher>();
 builder.Services.AddSingleton<DesktopWorkerManager>();
 builder.Services.AddSingleton<IWorkerEndpoint>(sp => sp.GetRequiredService<DesktopWorkerManager>());
@@ -35,6 +36,7 @@ builder.Services.AddMcpServer(options => options.ServerInstructions = ToolDocume
     .WithTools(ComputerToolCatalog.CreateTools());
 
 var app = builder.Build();
+_ = app.Services.GetRequiredService<ControlTokenProvider>();
 app.UseMiddleware<StaticTokenMiddleware>();
 app.MapGet("/healthz", () => Results.Ok(new HealthStatus(true, "RemoteControlSvc", ".NET 10")));
 app.MapMcp("/mcp");
