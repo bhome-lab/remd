@@ -4,7 +4,7 @@ Unicode true
 !include "LogicLib.nsh"
 
 !ifndef VERSION
-  !define VERSION "1.0.0"
+  !define VERSION "1.1.0"
 !endif
 !ifndef PUBLISH
   !error "PUBLISH must point to the self-contained publish directory"

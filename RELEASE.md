@@ -14,7 +14,7 @@
 ## Сборка
 
 ```powershell
-./installer/Build-Installer.ps1 -Version 1.0.0
+./installer/Build-Installer.ps1 -Version 1.1.0
 ```
 
 Скрипт запускает тесты, публикует self-contained `win-x64`, проверяет внешние бинарники, собирает `installer/out/RemoteControl-Setup.exe` и `.sha256`.

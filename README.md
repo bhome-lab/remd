@@ -23,7 +23,7 @@ Node.js и Python установщик не меняет. Они нужны то
 ```powershell
 dotnet build RemoteControl.slnx -c Release
 dotnet test RemoteControl.slnx -c Release --no-build
-./installer/Build-Installer.ps1 -Version 1.0.0
+./installer/Build-Installer.ps1 -Version 1.1.0
 .\scripts\Verify-Mcp.ps1 -Uri 'http://127.0.0.1:18080/mcp' -Token 'HOME_TOKEN'
 .\scripts\Verify-Worker.ps1 -Uri 'http://127.0.0.1:18080/mcp' -Token 'HOME_TOKEN'
 ```
